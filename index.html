@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" type="text/css" href="https://unpkg.com/dc@3/dc.css" />
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+  <script src="https://unpkg.com/d3@5/dist/d3.js"></script>
+  <script src="https://unpkg.com/crossfilter2@1.4/crossfilter.js"></script>
+  <script src="https://unpkg.com/dc@3/dc.js"></script>
+  <script src="https://rawgit.com/crossfilter/reductio/master/reductio.js"></script>
+  <script src="https://npmcdn.com/universe@latest/universe.js"></script>
+  <style>
+    
+  </style>
+</head>
+
+<body>
+  <div class="container">
+      
+    <div class="row">
+      <h3 class="text-xs-center">YT Videos </h3>
+      <div id="bubble"></div>
+    </div>
+    <div class="row">
+      <div class="col-6">
+          <h3 class="text-xs-center">Liked and DisLiked Top 20 videos </h3>
+          <div id="bar_like"></div>
+          <div id="bar_dislike"></div>
+      </div>
+      <div class="col-6">
+          <h3 class="text-xs-center">Speed of getting trending </h3>
+          <div id="trending"></div>
+      </div>
+    </div>
+  </div>
+   
+  <script>
+    var chart_bubble = dc.bubbleChart("#bubble");
+    var chart_bar_likes = dc.barChart("#bar_like");
+    var chart_bar_dislikes = dc.barChart("#bar_dislike");
+    var chart_row_trending = dc.barChart("#trending");
+   
+  d3.csv("https://raw.githubusercontent.com/srinidhi13-hub/srinidhi13-hub.github.io/master/INvideos_new.csv").then(function(data) {
+    d3.json("https://raw.githubusercontent.com/srinidhi13-hub/srinidhi13-hub.github.io/master/IN_category_id.json").then(function(cat_data){
+
+      let cat_details = cat_data.items.map(function(d){
+        return {
+          id: +d.id,
+          title: d.snippet.title
+        }
+      })
+
+      let cat_domain = cat_details.map(function(d){
+        return d.title
+      })
+      for (let index = 0; index < 2; index++) {
+        cat_domain.unshift("tmp"+index)
+        
+      }
+     
+
+      console.log(cat_domain)
+
+      function cat_get_data(id){
+        let tmp = cat_details.filter(d => d.id == id)
+        return (tmp.length>0)? tmp[0].title: 'none';
+      }
+
+      data.forEach(function(x) {
+        x.views = +x.views
+        x.likes = +x.likes
+        x.dislikes = +x.dislikes
+      });
+
+    let view_range = d3.extent(data.map(d => d.views)); 
+    let category_range = d3.extent(data.map(d => d.category_id)); 
+
+    function getTops(source_group) {
+      return {
+          all: function () {
+              return source_group.top(20);
+          }
+      };
+    }
+   
+    function time_gap (g_publish_time, g_trending_time){
+      const pub = new Date(g_publish_time)
+      var formatTime = d3.timeParse("%y.%d.%m")
+      const tre = new Date(formatTime(g_trending_time))
+      const diff_days = d3.timeDay.count(pub, tre);
+        return diff_days
+    }
+
+    var ndx = crossfilter();
+        ndx.add(data.map(function(d) {
+            return { 
+              //category: +d.category_id,
+              category: cat_get_data(+d.category_id) ,
+              views: +d.views, 
+              likes: +d.likes,
+              dislikes: +d.dislikes, 
+              video_id: d.video_id,
+              publish_time: d.publish_time,
+              to_trend_days: time_gap(d.publish_time, d.trending_date)
+            };
+        }));
+
+    var dim_category  = ndx.dimension(dc.pluck('category')),
+        category_grp = dim_category.group().reduceSum(dc.pluck('views'));
+        //category_grp = dim_category.group().reduceSum(dc.pluck('category'));
+        
+    var dim_video = ndx.dimension(dc.pluck('video_id'))
+        likes_grp = dim_video.group().reduceSum(dc.pluck('likes'))
+        dislikes_grp = dim_video.group().reduceSum(dc.pluck('dislikes'));
+
+    var likes_grp_top20 = getTops(likes_grp);
+    var dislikes_grp_top20 = getTops(dislikes_grp);
+
+    var dim_trending = ndx.dimension(dc.pluck('to_trend_days'))
+    var trending_grp = dim_trending.group().reduceCount(dc.pluck('to_trend_days'))
+
+    chart_bubble.width(1200)
+      .height(400)
+      .margins({top: 10, right: 50, bottom: 30, left: 60})
+      .dimension(dim_category)
+      .group(category_grp,'views')
+      .keyAccessor(function (p) {
+          return p.key;
+      })
+      .valueAccessor(function (p) {
+          return p.value;
+      })
+      .radiusValueAccessor(function (p) {
+          return p.value/1000000;
+      })
+      .x(d3.scaleBand().domain(cat_domain))
+      .y(d3.scaleLinear().domain([0,6500000000]))
+      .r(d3.scaleLinear().domain([-100, 10000]))
+      .minRadiusWithLabel(15)
+      // .elasticY(true)
+      // .yAxisPadding(100)
+      // .elasticX(true)
+      // .xAxisPadding(10)
+      .maxBubbleRelativeSize(0.3)
+      .renderHorizontalGridLines(true)
+      .renderVerticalGridLines(true)
+      .renderLabel(false)
+      .renderTitle(true)
+      .yAxisLabel("Views")
+      .xAxisLabel("Category name")
+
+    chart_bubble.yAxis().tickFormat(function (s) {
+      return (s/1000000)+"M";
+    });
+    chart_bubble.xAxis().ticks(0).tickFormat(function (s) {
+      return "";
+    });
+
+  //likes 
+  chart_bar_likes.width(500)
+    .height(200)
+    .x(d3.scaleBand())
+    .xUnits(dc.units.ordinal)
+    //.y(d3.scaleLinear().domain([1,50000]))
+    .ordinalColors(['#e41a1c'])
+    .brushOn(false)
+    .elasticY(true)
+    .elasticX(true)
+    .yAxisLabel("likes")
+    .yAxisPadding(100)
+    .dimension(dim_video)
+    .group(likes_grp_top20)
+    
+  chart_bar_likes.xAxis()
+    .tickFormat(function (s) {
+                return s.substring(0, 3);
+            });
+
+  chart_bar_likes.yAxis()
+  .ticks(5)
+  .tickFormat(function (s) {
+                return (s/1000000)+"M";
+            });
+
+  //dislikes
+  chart_bar_dislikes.width(500)
+    .height(200)
+    .x(d3.scaleBand())
+    .xUnits(dc.units.ordinal)
+    .ordinalColors(['#1E90FF'])
+    .brushOn(false)
+    .elasticY(true)
+    .elasticX(true)
+    .yAxisLabel("dislikes")
+    .xAxisLabel('video id')
+    .yAxisPadding(100)
+    .xAxisPadding(1)
+    .dimension(dim_video)
+    .group(dislikes_grp_top20)
+    .valueAccessor(function (p) {
+          return -p.value;
+    })
+
+  chart_bar_dislikes.xAxis().tickFormat(function (s) {
+                return s.substring(0, 3);
+            });
+
+  chart_bar_dislikes.yAxis()
+    .ticks(5)
+    .tickFormat(function (s) {
+                return (s/1000000)+"M";
+            });
+
+//trending
+  chart_row_trending.width(500)
+    .height(400)
+    .x(d3.scaleBand())
+    .xUnits(dc.units.ordinal)
+    .ordinalColors(['#1E90FF'])
+    .brushOn(false)
+    .elasticY(true)
+    .elasticX(true)
+    .yAxisLabel("Occurrences")
+    .brushOn(true)
+    .dimension(dim_trending)
+    .group(trending_grp)
+    .xAxisLabel("Number of days to trend")
+  
+    dc.renderAll();
+
+  })
+
+  });
+
+  </script>
+  <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
+
+</body>
